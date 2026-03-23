@@ -9,13 +9,12 @@ from PIL import Image
 
 from utils.export import download_code_snippet, download_pickle
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 
 
 st.set_page_config(page_title="OpenCV + Vision", layout="wide")
 apply_theme()
 render_sidebar("OpenCV + Vision")
-theme_toggle()
 
 st.title("OpenCV + Vision – Image Processing Playground")
 

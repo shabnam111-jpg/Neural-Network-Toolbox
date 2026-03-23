@@ -6,14 +6,13 @@ import streamlit as st
 
 from utils.export import download_code_snippet, download_pickle
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 from utils.viz import plot_contour_path, plot_3d_surface
 
 
 st.set_page_config(page_title="Gradient Descent", layout="wide")
 apply_theme()
 render_sidebar("Gradient Descent")
-theme_toggle()
 
 st.title("Gradient Descent – Optimizer Playground")
 

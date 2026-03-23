@@ -10,13 +10,12 @@ from torchvision import datasets, transforms
 
 from utils.export import download_code_snippet, download_torch_state
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 
 
 st.set_page_config(page_title="CNN", layout="wide")
 apply_theme()
 render_sidebar("CNN")
-theme_toggle()
 
 st.title("CNN – Convolutional Neural Network Explorer")
 
@@ -82,7 +81,7 @@ if st.button("Train CNN"):
 
     st.image(sample.squeeze(0).numpy(), caption="Input sample", width=120)
     fmaps = [f.numpy() for f in feats[0, :min(filters, 8)]]
-    st.image(fmaps, caption="Feature maps")
+    st.image(fmaps, caption=[f"Map {i+1}" for i in range(len(fmaps))])
 
     weights = model[0].weight[0, 0].detach().numpy()
     fig, ax = plt.subplots(figsize=(3, 3))

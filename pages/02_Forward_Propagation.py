@@ -4,14 +4,13 @@ import streamlit as st
 
 from utils.export import download_code_snippet, download_pickle
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 from utils.viz import plot_activation_curve
 
 
 st.set_page_config(page_title="Forward Propagation", layout="wide")
 apply_theme()
 render_sidebar("Forward Propagation")
-theme_toggle()
 
 st.title("Forward Propagation – Step-by-step Calculator")
 

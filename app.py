@@ -7,13 +7,12 @@ import streamlit as st
 
 from utils.export import download_code_snippet, download_pickle
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 
 
 st.set_page_config(page_title="NeuralViz Lab", layout="wide")
 apply_theme()
 render_sidebar("Home")
-theme_toggle()
 
 st.title("NeuralViz Lab – Interactive Neural Network Toolbox")
 
@@ -77,7 +76,6 @@ st.markdown(
 """
 )
 
-st.info("Tip: Toggle light/dark mode from the sidebar to match your vibe.")
 
 st.subheader("Quick demo")
 if st.button("Train a mini neuron"):

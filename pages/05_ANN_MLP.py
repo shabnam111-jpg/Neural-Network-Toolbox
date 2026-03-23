@@ -13,14 +13,13 @@ from sklearn.model_selection import train_test_split
 from utils.data import csv_to_dataframe, load_iris, standardize
 from utils.export import download_code_snippet, download_pickle, download_torch_state
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 from utils.viz import plot_loss_curve
 
 
 st.set_page_config(page_title="ANN (MLP)", layout="wide")
 apply_theme()
 render_sidebar("ANN (MLP)")
-theme_toggle()
 
 st.title("ANN (MLP) – Build a Multi-Layer Perceptron")
 

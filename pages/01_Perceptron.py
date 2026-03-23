@@ -8,14 +8,13 @@ import streamlit as st
 from utils.data import load_circles, load_moons
 from utils.export import download_code_snippet, download_pickle
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 from utils.viz import plot_decision_boundary
 
 
 st.set_page_config(page_title="Perceptron", layout="wide")
 apply_theme()
 render_sidebar("Perceptron")
-theme_toggle()
 
 st.title("Perceptron – Single Neuron Classifier")
 

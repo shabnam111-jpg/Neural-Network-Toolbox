@@ -9,13 +9,12 @@ import torch.nn as nn
 
 from utils.export import download_code_snippet, download_torch_state
 from utils.nav import render_sidebar
-from utils.theme import apply_theme, theme_toggle
+from utils.theme import apply_theme
 
 
 st.set_page_config(page_title="RNN", layout="wide")
 apply_theme()
 render_sidebar("RNN")
-theme_toggle()
 
 st.title("RNN – Sequence Modeling Lab")
 

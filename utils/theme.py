@@ -12,18 +12,6 @@ LIGHT_CSS = """
 }
 """
 
-DARK_CSS = """
-:root {
-  --bg: #0e1116;
-  --panel: #131820;
-  --text: #f4f4f8;
-  --muted: #b8c1d1;
-  --accent: #24c1d9;
-  --accent-2: #f59e0b;
-  --card: #151b24;
-}
-"""
-
 BASE_CSS = """
 body {
   background: var(--bg);
@@ -59,15 +47,4 @@ section[data-testid="stSidebar"] {
 
 
 def apply_theme() -> None:
-    theme = st.session_state.get("theme", "light")
-    css = LIGHT_CSS if theme == "light" else DARK_CSS
-    st.markdown(f"<style>{css}{BASE_CSS}</style>", unsafe_allow_html=True)
-
-
-def theme_toggle() -> None:
-    with st.sidebar:
-        st.markdown("---")
-        choice = st.radio("Theme", ["light", "dark"],
-                          index=0 if st.session_state.get("theme", "light") == "light" else 1,
-                          horizontal=True)
-    st.session_state["theme"] = choice
+  st.markdown(f"<style>{LIGHT_CSS}{BASE_CSS}</style>", unsafe_allow_html=True)

@@ -10,11 +10,11 @@ from utils.nav import render_sidebar
 from utils.theme import apply_theme
 
 
-st.set_page_config(page_title="Neural Lab", layout="wide")
+st.set_page_config(page_title="NeuralViz Lab", layout="wide")
 apply_theme()
 render_sidebar("Home")
 
-st.title("Neural Lab – Interactive Neural Network Toolbox")
+st.title("NeuralViz Lab – Interactive Neural Network Toolbox")
 
 st.markdown(
     """

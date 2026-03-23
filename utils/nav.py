@@ -28,7 +28,7 @@ PAGE_PATHS = {
 
 def render_sidebar(current_page: str) -> None:
     with st.sidebar:
-        st.markdown("## Neural Lab")
+        st.markdown("## NeuralViz Lab")
         selection = option_menu(
             "Navigation",
             [name for name, _ in PAGES],

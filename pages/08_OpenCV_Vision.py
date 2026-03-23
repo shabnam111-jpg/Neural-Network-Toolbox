@@ -1,6 +1,5 @@
 import io
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.express as px
@@ -16,7 +15,19 @@ st.set_page_config(page_title="OpenCV + Vision", layout="wide")
 apply_theme()
 render_sidebar("OpenCV + Vision")
 
+try:
+    import cv2
+    _cv2_error = None
+except Exception as exc:
+    cv2 = None
+    _cv2_error = str(exc)
+
 st.title("OpenCV + Vision – Image Processing Playground")
+
+if _cv2_error:
+    st.error("OpenCV failed to import in this environment.")
+    st.code(_cv2_error)
+    st.stop()
 
 with st.expander("Theory: preprocessing", expanded=True):
     st.markdown("Preprocessing boosts CNN performance and reduces noise.")

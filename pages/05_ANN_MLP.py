@@ -68,6 +68,7 @@ if st.button("Train MLP"):
     output_dim = len(np.unique(y))
 
     losses = []
+    step_info = {}
     if backend == "NumPy":
         weights = []
         biases = []
@@ -86,6 +87,13 @@ if st.button("Train MLP"):
                 z = a @ weights[i] + biases[i]
                 a = np.maximum(0, z) if i < len(weights) - 1 else z
                 activations.append(a)
+
+            if epoch == 0:
+                step_info = {
+                    "x0": X_train[0].astype(float).tolist(),
+                    "z1": (X_train[0] @ weights[0] + biases[0].squeeze()).astype(float).tolist(),
+                    "a1 (ReLU)": np.maximum(0, X_train[0] @ weights[0] + biases[0].squeeze()).astype(float).tolist(),
+                }
 
             logits = activations[-1]
             exp = np.exp(logits - logits.max(axis=1, keepdims=True))
@@ -138,6 +146,12 @@ if st.button("Train MLP"):
             logits = model(X_train_t)
             loss = criterion(logits, y_train_t)
             loss.backward()
+            if epoch == 0:
+                grad_norms = [p.grad.norm().item() for p in model.parameters() if p.grad is not None]
+                step_info = {
+                    "loss": float(loss.item()),
+                    "grad_norms": [float(v) for v in grad_norms],
+                }
             opt.step()
             losses.append(loss.item())
             bar.progress(int((epoch + 1) / epochs * 100))
@@ -147,6 +161,9 @@ if st.button("Train MLP"):
         download_torch_state("Download PyTorch model", model.state_dict(), "mlp_torch.pt")
 
     st.plotly_chart(plot_loss_curve(losses), use_container_width=True)
+
+    st.markdown("#### Step-by-step calculations")
+    st.write(step_info)
 
     cm = confusion_matrix(y_test, preds)
     st.markdown("#### Confusion Matrix")

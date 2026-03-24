@@ -68,6 +68,17 @@ if st.button("Train RNN"):
             time.sleep(0.01)
 
     st.success("Training complete")
+    pred_first = float(pred[0].item())
+    y_first = float(y[0].item())
+    loss_first = 0.5 * (pred_first - y_first) ** 2
+    st.markdown("#### Step-by-step calculations")
+    st.write({
+        "input_shape": list(X.shape),
+        "output_shape": list(out.shape),
+        "y0": y_first,
+        "pred0": pred_first,
+        "mse_sample": float(loss_first),
+    })
     st.line_chart({"target": y.squeeze().numpy(), "prediction": pred.detach().squeeze().numpy()})
 
     df_plot = {

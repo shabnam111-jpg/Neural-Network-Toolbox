@@ -70,6 +70,32 @@ with col2:
 
         st.image(display, caption="Processed output", use_column_width=True)
 
+        h, w = img.shape[:2]
+        cy, cx = h // 2, w // 2
+        center_rgb = img[cy, cx].tolist()
+        info = {
+            "tool": tool,
+            "center_pixel_rgb": center_rgb,
+        }
+        if tool == "Grayscale":
+            r, g, b = center_rgb[0], center_rgb[1], center_rgb[2]
+            gray_val = 0.299 * r + 0.587 * g + 0.114 * b
+            info["gray_value"] = float(gray_val)
+        elif tool == "Threshold":
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            gray_val = int(gray[cy, cx])
+            info["gray_value"] = gray_val
+            info["threshold"] = int(thresh)
+            info["thresholded_pixel"] = int(display[cy, cx])
+        else:
+            if display.ndim == 2:
+                info["processed_center_pixel"] = int(display[cy, cx])
+            else:
+                info["processed_center_pixel"] = display[cy, cx].tolist()
+
+        st.markdown("#### Step-by-step calculation")
+        st.write(info)
+
         fig, ax = plt.subplots(figsize=(4, 3))
         ax.imshow(display if display.ndim == 2 else cv2.cvtColor(display, cv2.COLOR_RGB2GRAY), cmap="gray")
         ax.set_title("Matplotlib preview")

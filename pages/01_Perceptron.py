@@ -66,6 +66,16 @@ with col2:
                          title="Interactive point cloud")
     st.plotly_chart(scatter, use_container_width=True)
 
+    st.markdown("#### Step-by-step calculation (first sample)")
+    x0 = X[0]
+    z0 = float(np.dot(w, x0) + bias)
+    y_hat0 = 1 if z0 >= 0 else 0
+    st.write({
+        "x": [float(x0[0]), float(x0[1])],
+        "z = w·x + b": z0,
+        "y_hat": y_hat0,
+    })
+
 st.subheader("Train from Scratch")
 train_btn = st.button("Train Perceptron")
 

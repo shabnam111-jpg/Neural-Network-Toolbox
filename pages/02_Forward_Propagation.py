@@ -55,6 +55,14 @@ with col2:
     st.markdown("#### Activation output")
     st.code(f"a = {a}")
 
+    st.markdown("#### Step-by-step calculation")
+    z1 = w11 * x1 + w12 * x2 + b1
+    z2 = w21 * x1 + w22 * x2 + b2
+    st.write({
+        "z1 = w11*x1 + w12*x2 + b1": float(z1),
+        "z2 = w21*x1 + w22*x2 + b2": float(z2),
+    })
+
     st.plotly_chart(plot_activation_curve(activation), use_container_width=True)
     fig, ax = plt.subplots(figsize=(4, 3))
     ax.plot([0, 1], [0, a[0]], marker="o")

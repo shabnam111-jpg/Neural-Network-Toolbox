@@ -51,6 +51,14 @@ with col2:
 
     st.markdown("#### Forward pass")
     st.write({"z": float(z), "a": float(a), "loss": float(loss)})
+    st.markdown("#### Step-by-step gradients")
+    st.write({
+        "dL/da": float(dL_da),
+        "da/dz": float(da_dz),
+        "dL/dz": float(dL_dz),
+        "dL/dw": float(dL_dw),
+        "dL/db": float(dL_db),
+    })
     fig, ax = plt.subplots(figsize=(4, 3))
     ax.bar(["loss"], [loss], color="#0b6b77")
     ax.set_title("Loss snapshot (Matplotlib)")

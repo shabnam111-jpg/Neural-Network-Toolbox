@@ -40,9 +40,11 @@ if st.button("Animate optimization"):
     xs, ys = [x], [y]
     beta = 0.9
     m_x, m_y, v_x, v_y = 0.0, 0.0, 0.0, 0.0
+    steps_log = []
 
     for t in range(1, steps + 1):
         grad_x, grad_y = 2 * x, 2 * y
+        x_prev, y_prev = x, y
         if optimizer == "GD":
             x -= lr * grad_x
             y -= lr * grad_y
@@ -67,6 +69,15 @@ if st.button("Animate optimization"):
             x -= lr * m_x_hat / (np.sqrt(v_x_hat) + 1e-8)
             y -= lr * m_y_hat / (np.sqrt(v_y_hat) + 1e-8)
 
+        steps_log.append({
+            "step": t,
+            "x": float(x_prev),
+            "y": float(y_prev),
+            "grad_x": float(grad_x),
+            "grad_y": float(grad_y),
+            "delta_x": float(x - x_prev),
+            "delta_y": float(y - y_prev),
+        })
         xs.append(x)
         ys.append(y)
         time.sleep(0.02)
@@ -77,6 +88,8 @@ if st.button("Animate optimization"):
     ax.plot(losses, color="#0b6b77")
     ax.set_title("Loss vs step (Matplotlib)")
     st.pyplot(fig)
+    st.markdown("#### Step-by-step updates (first 10)")
+    st.dataframe(steps_log[:10])
     download_pickle("Download optimizer path", {"x": xs, "y": ys}, "optimizer_path.pkl")
 
 code = """

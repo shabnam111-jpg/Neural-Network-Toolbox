@@ -81,7 +81,15 @@ if st.button("Train CNN"):
 
     st.image(sample.squeeze(0).numpy(), caption="Input sample", width=120)
     fmaps = [f.numpy() for f in feats[0, :min(filters, 8)]]
-    st.image(fmaps, caption=[f"Map {i+1}" for i in range(len(fmaps))])
+    fmaps_normalized = []
+    for fmap in fmaps:
+        fmap = fmap - np.min(fmap)
+        fmap = fmap / np.max(fmap)
+        fmaps_normalized.append(fmap)
+    st.image(
+        fmaps_normalized,
+        caption=[f"Map {i+1}" for i in range(len(fmaps_normalized))],
+    )
 
     weights = model[0].weight[0, 0].detach().numpy()
     fig, ax = plt.subplots(figsize=(3, 3))

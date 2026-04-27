@@ -1,4 +1,5 @@
 import datetime
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -33,9 +34,15 @@ def _load_image(upload) -> np.ndarray:
 	return np.array(image)
 
 
+def _get_cascade() -> "cv2.CascadeClassifier":
+	if "face_cascade" not in st.session_state:
+		cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+		st.session_state["face_cascade"] = cv2.CascadeClassifier(cascade_path)
+	return st.session_state["face_cascade"]
+
+
 def _detect_faces(gray: np.ndarray, scale: float, neighbors: int, min_size: int) -> List[Tuple[int, int, int, int]]:
-	cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-	cascade = cv2.CascadeClassifier(cascade_path)
+	cascade = _get_cascade()
 	faces = cascade.detectMultiScale(
 		gray,
 		scaleFactor=scale,
@@ -65,23 +72,75 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 	return float(np.dot(a, b) / denom) if denom > 0 else 0.0
 
 
+def _annotate_frame(
+	frame_bgr: np.ndarray,
+	scale: float,
+	neighbors: int,
+	min_size: int,
+	ref_embeddings: List[np.ndarray],
+	ref_labels: List[str],
+	threshold: float,
+) -> Tuple[np.ndarray, bool, List[str], int]:
+	gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+	faces = _detect_faces(gray, scale, neighbors, min_size)
+
+	display = frame_bgr.copy()
+	matched_any = False
+	match_lines = []
+
+	for (x, y, w, h) in faces:
+		face_crop = frame_bgr[y : y + h, x : x + w]
+		emb = _face_embedding(face_crop)
+		best_label = "Unknown"
+		best_score = 0.0
+
+		if ref_embeddings:
+			scores = [_cosine_similarity(emb, ref) for ref in ref_embeddings]
+			best_idx = int(np.argmax(scores))
+			best_score = float(scores[best_idx])
+			if best_score >= threshold:
+				best_label = ref_labels[best_idx]
+
+		color = (35, 179, 88) if best_label != "Unknown" else (255, 99, 71)
+		cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
+		cv2.putText(
+			display,
+			f"{best_label} ({best_score:.2f})",
+			(x, max(15, y - 8)),
+			cv2.FONT_HERSHEY_SIMPLEX,
+			0.5,
+			color,
+			2,
+		)
+
+		if best_label != "Unknown":
+			matched_any = True
+			match_lines.append(f"Match: {best_label} score={best_score:.2f}")
+
+	return cv2.cvtColor(display, cv2.COLOR_BGR2RGB), matched_any, match_lines, len(faces)
+
+
 st.markdown(
-	"Upload reference images (known faces), then upload a target image. "
-	"If a face in the target matches, you will see \"Face detected\" with the time."
+	"Upload reference images (known faces), then run detection. "
+	"If a face matches, you will see \"Face detected\" with the time."
 )
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
+	mode = st.radio("Mode", ["Upload image", "Live webcam (capture frame)"])
 	ref_uploads = st.file_uploader(
 		"Reference face images",
 		type=["png", "jpg", "jpeg"],
 		accept_multiple_files=True,
 	)
-	target_upload = st.file_uploader(
-		"Target image",
-		type=["png", "jpg", "jpeg"],
-	)
+	if mode == "Upload image":
+		target_upload = st.file_uploader(
+			"Target image",
+			type=["png", "jpg", "jpeg"],
+		)
+	else:
+		target_upload = None
 	scale = st.slider("Detection scale", 1.05, 1.5, 1.1, 0.05)
 	neighbors = st.slider("Min neighbors", 3, 10, 5, 1)
 	min_size = st.slider("Min face size", 30, 180, 60, 10)
@@ -116,48 +175,46 @@ with col2:
 	if target_upload:
 		target_rgb = _load_image(target_upload)
 		target_bgr = cv2.cvtColor(target_rgb, cv2.COLOR_RGB2BGR)
-		gray = cv2.cvtColor(target_bgr, cv2.COLOR_BGR2GRAY)
-		faces = _detect_faces(gray, scale, neighbors, min_size)
+		display, matched_any, match_lines, face_count = _annotate_frame(
+			target_bgr,
+			scale,
+			neighbors,
+			min_size,
+			ref_embeddings,
+			ref_labels,
+			threshold,
+		)
 
-		if not faces:
+		if face_count == 0:
 			st.warning("No faces detected in the target image.")
 		else:
-			display = target_rgb.copy()
-			matched_any = False
-			match_lines = []
-
-			for (x, y, w, h) in faces:
-				face_crop = target_bgr[y : y + h, x : x + w]
-				emb = _face_embedding(face_crop)
-				best_label = "Unknown"
-				best_score = 0.0
-
-				if ref_embeddings:
-					scores = [_cosine_similarity(emb, ref) for ref in ref_embeddings]
-					best_idx = int(np.argmax(scores))
-					best_score = float(scores[best_idx])
-					if best_score >= threshold:
-						best_label = ref_labels[best_idx]
-
-				color = (35, 179, 88) if best_label != "Unknown" else (255, 99, 71)
-				cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
-				cv2.putText(
-					display,
-					f"{best_label} ({best_score:.2f})",
-					(x, max(15, y - 8)),
-					cv2.FONT_HERSHEY_SIMPLEX,
-					0.5,
-					color,
-					2,
-				)
-
-				if best_label != "Unknown":
-					matched_any = True
-					match_lines.append(f"Match: {best_label} score={best_score:.2f}")
-
 			st.image(display, caption="Detection result", use_column_width=True)
-
 			if matched_any:
+				now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+				st.success(f"Face detected at {now}.")
+				st.write("\n".join(match_lines))
+			else:
+				st.info("Faces detected, but no matches above the threshold.")
+	elif mode == "Live webcam (capture frame)":
+		st.markdown("#### Live webcam")
+		st.caption("Capture a frame to run matching and timestamp.")
+		cam_upload = st.camera_input("Capture frame")
+		if cam_upload:
+			frame_rgb = _load_image(cam_upload)
+			frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+			display, matched_any, match_lines, face_count = _annotate_frame(
+				frame_bgr,
+				scale,
+				neighbors,
+				min_size,
+				ref_embeddings,
+				ref_labels,
+				threshold,
+			)
+			st.image(display, caption="Live detection", use_column_width=True)
+			if face_count == 0:
+				st.warning("No faces detected in the captured frame.")
+			elif matched_any:
 				now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 				st.success(f"Face detected at {now}.")
 				st.write("\n".join(match_lines))

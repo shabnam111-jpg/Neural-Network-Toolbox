@@ -250,7 +250,8 @@ def _normalize_scores(scores: list) -> dict:
             cleaned.append({"label": item[0], "score": item[1]})
     if not cleaned:
         return {}
-    total = sum(float(item.get("score", 0.0)) for item in cleaned) or 1.0
+    st.write(cleaned)
+    total = sum(float(item.get("score", 0) or 0) if str(item.get("score",0)).replace('.','',1).isdigit() else 0 for item in cleaned) or 1.0
     return {
         str(item.get("label", "unknown")).lower(): float(item.get("score", 0.0)) / total
         for item in cleaned

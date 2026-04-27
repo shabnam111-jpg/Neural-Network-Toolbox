@@ -250,12 +250,22 @@ def _normalize_scores(scores: list) -> dict:
             cleaned.append({"label": item[0], "score": item[1]})
     if not cleaned:
         return {}
-    st.write(cleaned)
-    total = sum(float(item.get("score", 0) or 0) if str(item.get("score",0)).replace('.','',1).isdigit() else 0 for item in cleaned) or 1.0
-    return {
-        str(item.get("label", "unknown")).lower(): float(item.get("score", 0.0)) / total
-        for item in cleaned
-    }
+    normalized = []
+    for item in cleaned:
+        label = item.get("label")
+        score = item.get("score")
+        if isinstance(score, str) and score.upper().startswith("LABEL_") and isinstance(label, (int, float)):
+            label, score = score, label
+        if isinstance(score, str):
+            try:
+                score = float(score)
+            except ValueError:
+                score = 0.0
+        if score is None:
+            score = 0.0
+        normalized.append({"label": str(label or "unknown"), "score": float(score)})
+    total = sum(item["score"] for item in normalized) or 1.0
+    return {item["label"].lower(): item["score"] / total for item in normalized}
 
 
 def _map_sentiment(scores: dict) -> tuple:

@@ -346,6 +346,7 @@ if "text_history" not in st.session_state:
 tab_text, tab_cam = st.tabs(["Text / Chat Mode", "Webcam Snapshot Mode"])
 
 with tab_text:
+    result = None
     left, right = st.columns([1.2, 1])
     with left:
         st.markdown("#### Text Analysis Panel")
@@ -355,18 +356,38 @@ with tab_text:
         )
         chat_text = st.text_area("Chat input", height=120, placeholder="Type here...")
         st.markdown("Typing" + "<span class='typing'><span>.</span><span>.</span><span>.</span></span>", unsafe_allow_html=True)
+        analyze = st.button("Analyze Text", type="primary")
 
-            st.caption("Streamlit Cloud supports snapshot capture. Live video streaming is not available here.")
-            cam_frame = st.camera_input("Capture a frame")
-            if cam_frame:
-                frame_rgb = np.array(Image.open(cam_frame).convert("RGB"))
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                display, label, confidence = _analyze_snapshot(frame_bgr)
-                st.image(cv2.cvtColor(display, cv2.COLOR_BGR2RGB), caption="Snapshot analysis", use_column_width=True)
-                if confidence > 0:
-                    st.success(label)
-                else:
-                    st.info("No face detected in the snapshot.")
+        if analyze and chat_text.strip():
+            result = _predict_text(chat_text)
+            st.session_state["text_history"].append({
+                "text": chat_text,
+                "sentiment_label": result["sentiment_label"],
+                "sentiment_score": result["sentiment_score"],
+                "emotion_label": result["emotion_label"],
+                "emotion_score": result["emotion_score"],
+            })
+
+    with right:
+        st.markdown("#### Confidence Charts")
+        if result:
+            sentiment_scores = result["sentiment_scores"]
+            emotion_scores = result["emotion_scores"]
+            sent_df = {
+                "label": ["Positive", "Neutral", "Negative"],
+                "score": [
+                    sentiment_scores.get("positive", 0.0),
+                    sentiment_scores.get("neutral", 0.0),
+                    sentiment_scores.get("negative", 0.0),
+                ],
+            }
+            emotion_dist = _emotion_distribution(emotion_scores, result["sentiment_label"])
+            emo_df = {
+                "label": list(emotion_dist.keys()),
+                "score": list(emotion_dist.values()),
+            }
+            sent_plot = px.bar(sent_df, x="label", y="score", range_y=[0, 1])
+            emo_plot = px.bar(emo_df, x="label", y="score", range_y=[0, 1])
             st.plotly_chart(sent_plot, use_container_width=True)
             st.plotly_chart(emo_plot, use_container_width=True)
         else:
@@ -388,40 +409,20 @@ with tab_text:
 with tab_cam:
     st.markdown("#### Live Camera Panel")
     if _video_deps_error:
-        st.warning("Live webcam mode is unavailable in this environment.")
+        st.warning("Webcam snapshot mode is unavailable in this environment.")
         st.code(_video_deps_error)
-        st.stop()
-    cam_controls = st.columns([1, 1, 1, 1])
-    with cam_controls[0]:
-        if st.button("Start Camera"):
-            st.session_state["camera_running"] = True
-    with cam_controls[1]:
-        if st.button("Stop Camera"):
-            st.session_state["camera_running"] = False
-    with cam_controls[2]:
-        if st.button("Switch Camera"):
-            st.session_state["camera_facing"] = (
-                "environment" if st.session_state["camera_facing"] == "user" else "user"
-            )
-        st.caption(f"Camera: {st.session_state['camera_facing']}")
-    with cam_controls[3]:
-        snapshot = st.button("Snapshot")
-
-    if st.session_state["camera_running"]:
-        webrtc_ctx = webrtc_streamer(
-            key="emotion-cam",
-            video_transformer_factory=EmotionVideoProcessor,
-            media_stream_constraints={"video": {"facingMode": st.session_state["camera_facing"]}, "audio": False},
-        )
-        processor = webrtc_ctx.video_transformer if webrtc_ctx else None
-        fps_val = getattr(processor, "fps", 0.0) if processor else 0.0
-        st.markdown(f"**FPS:** {fps_val:.1f}")
-
-        if snapshot and processor and processor.last_frame is not None:
-            snapshot_rgb = cv2.cvtColor(processor.last_frame, cv2.COLOR_BGR2RGB)
-            st.image(snapshot_rgb, caption="Snapshot", use_column_width=True)
     else:
-        st.info("Camera is stopped.")
+        st.caption("Streamlit Cloud supports snapshot capture. Live video streaming is not available here.")
+        cam_frame = st.camera_input("Capture a frame")
+        if cam_frame:
+            frame_rgb = np.array(Image.open(cam_frame).convert("RGB"))
+            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+            display, label, confidence = _analyze_snapshot(frame_bgr)
+            st.image(cv2.cvtColor(display, cv2.COLOR_BGR2RGB), caption="Snapshot analysis", use_column_width=True)
+            if confidence > 0:
+                st.success(label)
+            else:
+                st.info("No face detected in the snapshot.")
 
 st.markdown("#### Accuracy Metrics")
 if st.session_state["text_history"]:

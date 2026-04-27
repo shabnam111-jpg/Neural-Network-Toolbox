@@ -227,11 +227,11 @@ EMOJI_MAP = {
 def _load_text_pipelines():
     tokenizer_sent = AutoTokenizer.from_pretrained(TEXT_SENTIMENT_MODEL)
     model_sent = AutoModelForSequenceClassification.from_pretrained(TEXT_SENTIMENT_MODEL)
-    sent_pipe = pipeline("text-classification", model=model_sent, tokenizer=tokenizer_sent, return_all_scores=True)
+    sent_pipe = pipeline("text-classification", model=model_sent, tokenizer=tokenizer_sent, top_k=None)
 
     tokenizer_emo = AutoTokenizer.from_pretrained(TEXT_EMOTION_MODEL)
     model_emo = AutoModelForSequenceClassification.from_pretrained(TEXT_EMOTION_MODEL)
-    emo_pipe = pipeline("text-classification", model=model_emo, tokenizer=tokenizer_emo, return_all_scores=True)
+    emo_pipe = pipeline("text-classification", model=model_emo, tokenizer=tokenizer_emo, top_k=None)
     return sent_pipe, emo_pipe
 
 
@@ -269,12 +269,24 @@ def _normalize_scores(scores: list) -> dict:
 
 
 def _map_sentiment(scores: dict) -> tuple:
+    if not scores:
+        return "Neutral", 0.0
+    if any(label.startswith("label_") for label in scores):
+        mapped_scores = {
+            "negative": scores.get("label_0", 0.0),
+            "neutral": scores.get("label_1", 0.0),
+            "positive": scores.get("label_2", 0.0),
+        }
+        best_label = max(mapped_scores, key=mapped_scores.get)
+        return best_label.capitalize(), mapped_scores[best_label]
     mapping = {"negative": "Negative", "neutral": "Neutral", "positive": "Positive"}
     best_label = max(scores, key=scores.get)
     return mapping.get(best_label, "Neutral"), scores[best_label]
 
 
 def _map_emotion(scores: dict, sentiment_label: str) -> tuple:
+    if not scores:
+        return "Calm", 0.0
     base_map = {
         "joy": "Happy",
         "love": "Love",
@@ -300,6 +312,9 @@ def _map_emotion(scores: dict, sentiment_label: str) -> tuple:
 
 def _emotion_distribution(scores: dict, sentiment_label: str) -> dict:
     dist = {label: 0.0 for label in EMOJI_MAP.keys()}
+    if not scores:
+        dist["Calm"] = 1.0
+        return dist
     base_map = {
         "joy": "Happy",
         "love": "Love",
@@ -322,8 +337,8 @@ def _emotion_distribution(scores: dict, sentiment_label: str) -> dict:
 
 def _predict_text(text: str) -> dict:
     sent_pipe, emo_pipe = _load_text_pipelines()
-    sent_scores = _normalize_scores(sent_pipe(text)[0])
-    emo_scores = _normalize_scores(emo_pipe(text)[0])
+    sent_scores = _normalize_scores(sent_pipe(text))
+    emo_scores = _normalize_scores(emo_pipe(text))
     sentiment_label, sentiment_score = _map_sentiment(sent_scores)
     emotion_label, emotion_score = _map_emotion(emo_scores, sentiment_label)
     return {
@@ -346,6 +361,12 @@ def _get_face_cascade():
     return cv2.CascadeClassifier(cascade_path)
 
 
+@st.cache_resource
+def _get_smile_cascade():
+    cascade_path = cv2.data.haarcascades + "haarcascade_smile.xml"
+    return cv2.CascadeClassifier(cascade_path)
+
+
 def _analyze_snapshot(frame_bgr: np.ndarray) -> tuple:
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     cascade = _get_face_cascade()
@@ -358,12 +379,22 @@ def _analyze_snapshot(frame_bgr: np.ndarray) -> tuple:
     for (x, y, w, h) in faces:
         cv2.rectangle(display, (x, y), (x + w, y + h), (0, 255, 200), 2)
 
-    emotion_label = "Calm"
-    sentiment_label = "Neutral"
-    confidence = 0.6
+    smile_cascade = _get_smile_cascade()
+    x, y, w, h = faces[0]
+    face_roi = gray[y : y + h, x : x + w]
+    smiles = smile_cascade.detectMultiScale(face_roi, scaleFactor=1.7, minNeighbors=20)
+
+    if len(smiles) > 0:
+        emotion_label = "Happy"
+        sentiment_label = "Positive"
+        confidence = 0.75
+    else:
+        emotion_label = "Calm"
+        sentiment_label = "Neutral"
+        confidence = 0.45
+
     emoji = EMOJI_MAP.get(emotion_label, "")
     label = f"{emoji} {emotion_label} | {sentiment_label} | {_confidence_percent(confidence)}%"
-    x, y, _, _ = faces[0]
     cv2.putText(display, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
     return display, label, confidence
 

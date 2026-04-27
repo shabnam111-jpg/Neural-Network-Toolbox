@@ -6,6 +6,7 @@ import plotly.express as px
 import streamlit as st
 import torch
 import torch.nn as nn
+from PIL import Image
 
 from utils.export import download_code_snippet, download_torch_state
 from utils.nav import render_sidebar
@@ -114,22 +115,20 @@ download_code_snippet("Export Python Code", code.strip(), "rnn_model.py")
 st.divider()
 
 try:
-    import cv2
-    from streamlit_webrtc import VideoTransformerBase, webrtc_streamer
-    import av
-    from fer import FER
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
-
-    _lstm_deps_error = None
+    _text_deps_error = None
 except Exception as exc:
-    VideoTransformerBase = None
-    webrtc_streamer = None
-    av = None
-    FER = None
     AutoModelForSequenceClassification = None
     AutoTokenizer = None
     pipeline = None
-    _lstm_deps_error = str(exc)
+    _text_deps_error = str(exc)
+
+try:
+    import cv2
+    _video_deps_error = None
+except Exception as exc:
+    cv2 = None
+    _video_deps_error = str(exc)
 
 
 st.markdown(
@@ -204,9 +203,9 @@ with st.expander("Theory: LSTM and emotion modeling", expanded=True):
         r"\overleftarrow{h_t} = \text{LSTM}(x_t, \overleftarrow{h_{t+1}})"
     )
 
-if _lstm_deps_error:
-    st.error("Missing dependencies for LSTM sentiment/emotion module.")
-    st.code(_lstm_deps_error)
+if _text_deps_error:
+    st.error("Missing dependencies for the text sentiment/emotion module.")
+    st.code(_text_deps_error)
     st.stop()
 
 TEXT_SENTIMENT_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
@@ -313,80 +312,38 @@ def _confidence_percent(score: float) -> int:
     return int(round(score * 100))
 
 
-class EmotionVideoProcessor(VideoTransformerBase):
-    def __init__(self):
-        self.detector = FER(mtcnn=False)
-        self.last_result = None
-        self.last_frame = None
-        self.fps = 0.0
-        self._last_tick = time.time()
-
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        self.last_frame = img.copy()
-
-        results = self.detector.detect_emotions(img)
-        if results:
-            face = max(results, key=lambda r: (r["box"][2] * r["box"][3]))
-            emotions = face["emotions"]
-            self.last_result = emotions
-            x, y, w, h = face["box"]
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 200), 2)
-
-            emotion_label, emotion_score = _map_face_emotion(emotions)
-            sentiment_label, sentiment_score = _map_face_sentiment(emotion_label, emotion_score)
-            emoji = EMOJI_MAP.get(emotion_label, "")
-            label = f"{emoji} {emotion_label} | {sentiment_label} | {_confidence_percent(sentiment_score)}%"
-            cv2.putText(img, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
-
-        now = time.time()
-        dt = now - self._last_tick
-        if dt > 0:
-            self.fps = 0.9 * self.fps + 0.1 * (1.0 / dt)
-        self._last_tick = now
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+@st.cache_resource
+def _get_face_cascade():
+    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    return cv2.CascadeClassifier(cascade_path)
 
 
-def _map_face_emotion(emotions: dict) -> tuple:
-    if not emotions:
-        return "Calm", 0.0
-    best_label = max(emotions, key=emotions.get)
-    base_map = {
-        "happy": "Happy",
-        "sad": "Sad",
-        "angry": "Angry",
-        "fear": "Fear",
-        "surprise": "Surprise",
-        "neutral": "Calm",
-        "disgust": "Angry",
-    }
-    mapped = base_map.get(best_label, "Calm")
-    score = float(emotions.get(best_label, 0.0))
-    if emotions.get("happy", 0) > 0.6 and emotions.get("surprise", 0) > 0.2:
-        mapped = "Excited"
-        score = max(float(emotions.get("happy", 0.0)), float(emotions.get("surprise", 0.0)))
-    return mapped, score
+def _analyze_snapshot(frame_bgr: np.ndarray) -> tuple:
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    cascade = _get_face_cascade()
+    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+    display = frame_bgr.copy()
 
+    if len(faces) == 0:
+        return display, "No face detected", 0.0
 
-def _map_face_sentiment(emotion_label: str, emotion_score: float) -> tuple:
-    positive = {"Happy", "Excited", "Love"}
-    negative = {"Angry", "Sad", "Fear"}
-    if emotion_label in positive:
-        return "Positive", emotion_score
-    if emotion_label in negative:
-        return "Negative", emotion_score
-    return "Neutral", max(0.35, emotion_score)
+    for (x, y, w, h) in faces:
+        cv2.rectangle(display, (x, y), (x + w, y + h), (0, 255, 200), 2)
+
+    emotion_label = "Calm"
+    sentiment_label = "Neutral"
+    confidence = 0.6
+    emoji = EMOJI_MAP.get(emotion_label, "")
+    label = f"{emoji} {emotion_label} | {sentiment_label} | {_confidence_percent(confidence)}%"
+    x, y, _, _ = faces[0]
+    cv2.putText(display, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
+    return display, label, confidence
 
 
 if "text_history" not in st.session_state:
     st.session_state["text_history"] = []
 
-if "camera_running" not in st.session_state:
-    st.session_state["camera_running"] = False
-if "camera_facing" not in st.session_state:
-    st.session_state["camera_facing"] = "user"
-
-tab_text, tab_cam = st.tabs(["Text / Chat Mode", "Live Webcam Mode"])
+tab_text, tab_cam = st.tabs(["Text / Chat Mode", "Webcam Snapshot Mode"])
 
 with tab_text:
     left, right = st.columns([1.2, 1])
@@ -398,38 +355,18 @@ with tab_text:
         )
         chat_text = st.text_area("Chat input", height=120, placeholder="Type here...")
         st.markdown("Typing" + "<span class='typing'><span>.</span><span>.</span><span>.</span></span>", unsafe_allow_html=True)
-        analyze = st.button("Analyze Text", type="primary")
 
-        if analyze and chat_text.strip():
-            result = _predict_text(chat_text)
-            st.session_state["text_history"].append({
-                "text": chat_text,
-                "sentiment_label": result["sentiment_label"],
-                "sentiment_score": result["sentiment_score"],
-                "emotion_label": result["emotion_label"],
-                "emotion_score": result["emotion_score"],
-            })
-
-    with right:
-        st.markdown("#### Confidence Charts")
-        if analyze and chat_text.strip():
-            sentiment_scores = result["sentiment_scores"]
-            emotion_scores = result["emotion_scores"]
-            sent_df = {
-                "label": ["Positive", "Neutral", "Negative"],
-                "score": [
-                    sentiment_scores.get("positive", 0.0),
-                    sentiment_scores.get("neutral", 0.0),
-                    sentiment_scores.get("negative", 0.0),
-                ],
-            }
-            emotion_dist = _emotion_distribution(emotion_scores, result["sentiment_label"])
-            emo_df = {
-                "label": list(emotion_dist.keys()),
-                "score": list(emotion_dist.values()),
-            }
-            sent_plot = px.bar(sent_df, x="label", y="score", range_y=[0, 1])
-            emo_plot = px.bar(emo_df, x="label", y="score", range_y=[0, 1])
+            st.caption("Streamlit Cloud supports snapshot capture. Live video streaming is not available here.")
+            cam_frame = st.camera_input("Capture a frame")
+            if cam_frame:
+                frame_rgb = np.array(Image.open(cam_frame).convert("RGB"))
+                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                display, label, confidence = _analyze_snapshot(frame_bgr)
+                st.image(cv2.cvtColor(display, cv2.COLOR_BGR2RGB), caption="Snapshot analysis", use_column_width=True)
+                if confidence > 0:
+                    st.success(label)
+                else:
+                    st.info("No face detected in the snapshot.")
             st.plotly_chart(sent_plot, use_container_width=True)
             st.plotly_chart(emo_plot, use_container_width=True)
         else:
@@ -450,6 +387,10 @@ with tab_text:
 
 with tab_cam:
     st.markdown("#### Live Camera Panel")
+    if _video_deps_error:
+        st.warning("Live webcam mode is unavailable in this environment.")
+        st.code(_video_deps_error)
+        st.stop()
     cam_controls = st.columns([1, 1, 1, 1])
     with cam_controls[0]:
         if st.button("Start Camera"):

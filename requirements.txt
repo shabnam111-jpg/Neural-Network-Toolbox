@@ -11,7 +11,3 @@ opencv-python-headless>=4.9.0
 pillow>=10.0.0
 transformers>=4.40.0
 sentencepiece>=0.2.0
-streamlit-webrtc>=0.47.0
-av>=11.0.0
-fer>=22.5.0
-tensorflow>=2.15.0

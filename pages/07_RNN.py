@@ -236,8 +236,12 @@ def _load_text_pipelines():
 
 
 def _normalize_scores(scores: list) -> dict:
-    total = sum(item["score"] for item in scores) or 1.0
-    return {item["label"].lower(): float(item["score"] / total) for item in scores}
+    if not scores:
+        return {}
+    if isinstance(scores, list) and scores and isinstance(scores[0], list):
+        scores = scores[0]
+    total = sum(item.get("score", 0.0) for item in scores) or 1.0
+    return {item.get("label", "unknown").lower(): float(item.get("score", 0.0) / total) for item in scores}
 
 
 def _map_sentiment(scores: dict) -> tuple:

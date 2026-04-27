@@ -101,11 +101,12 @@ def _annotate_frame(
 			if best_score >= threshold:
 				best_label = ref_labels[best_idx]
 
+		match_percent = int(round(best_score * 100))
 		color = (35, 179, 88) if best_label != "Unknown" else (255, 99, 71)
 		cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
 		cv2.putText(
 			display,
-			f"{best_label} ({best_score:.2f})",
+			f"{best_label} ({match_percent}%)",
 			(x, max(15, y - 8)),
 			cv2.FONT_HERSHEY_SIMPLEX,
 			0.5,
@@ -115,32 +116,24 @@ def _annotate_frame(
 
 		if best_label != "Unknown":
 			matched_any = True
-			match_lines.append(f"Match: {best_label} score={best_score:.2f}")
+			match_lines.append(f"Match: {best_label} {match_percent}%")
 
 	return cv2.cvtColor(display, cv2.COLOR_BGR2RGB), matched_any, match_lines, len(faces)
 
 
 st.markdown(
-	"Upload reference images (known faces), then run detection. "
+	"Upload reference images (known faces), then capture a frame. "
 	"If a face matches, you will see \"Face detected\" with the time."
 )
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-	mode = st.radio("Mode", ["Upload image", "Live webcam (capture frame)"])
 	ref_uploads = st.file_uploader(
 		"Reference face images",
 		type=["png", "jpg", "jpeg"],
 		accept_multiple_files=True,
 	)
-	if mode == "Upload image":
-		target_upload = st.file_uploader(
-			"Target image",
-			type=["png", "jpg", "jpeg"],
-		)
-	else:
-		target_upload = None
 	scale = st.slider("Detection scale", 1.05, 1.5, 1.1, 0.05)
 	neighbors = st.slider("Min neighbors", 3, 10, 5, 1)
 	min_size = st.slider("Min face size", 30, 180, 60, 10)
@@ -172,11 +165,14 @@ with col2:
 			with ref_cols[idx % len(ref_cols)]:
 				st.image(img_rgb, caption=upload.name, use_column_width=True)
 
-	if target_upload:
-		target_rgb = _load_image(target_upload)
-		target_bgr = cv2.cvtColor(target_rgb, cv2.COLOR_RGB2BGR)
+	st.markdown("#### Live webcam")
+	st.caption("Capture a frame to run matching and timestamp.")
+	cam_upload = st.camera_input("Capture frame")
+	if cam_upload:
+		frame_rgb = _load_image(cam_upload)
+		frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 		display, matched_any, match_lines, face_count = _annotate_frame(
-			target_bgr,
+			frame_bgr,
 			scale,
 			neighbors,
 			min_size,
@@ -184,41 +180,14 @@ with col2:
 			ref_labels,
 			threshold,
 		)
-
+		st.image(display, caption="Live detection", use_column_width=True)
 		if face_count == 0:
-			st.warning("No faces detected in the target image.")
+			st.warning("No faces detected in the captured frame.")
+		elif matched_any:
+			now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			st.success(f"Face detected at {now}.")
+			st.write("\n".join(match_lines))
 		else:
-			st.image(display, caption="Detection result", use_column_width=True)
-			if matched_any:
-				now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-				st.success(f"Face detected at {now}.")
-				st.write("\n".join(match_lines))
-			else:
-				st.info("Faces detected, but no matches above the threshold.")
-	elif mode == "Live webcam (capture frame)":
-		st.markdown("#### Live webcam")
-		st.caption("Capture a frame to run matching and timestamp.")
-		cam_upload = st.camera_input("Capture frame")
-		if cam_upload:
-			frame_rgb = _load_image(cam_upload)
-			frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-			display, matched_any, match_lines, face_count = _annotate_frame(
-				frame_bgr,
-				scale,
-				neighbors,
-				min_size,
-				ref_embeddings,
-				ref_labels,
-				threshold,
-			)
-			st.image(display, caption="Live detection", use_column_width=True)
-			if face_count == 0:
-				st.warning("No faces detected in the captured frame.")
-			elif matched_any:
-				now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-				st.success(f"Face detected at {now}.")
-				st.write("\n".join(match_lines))
-			else:
-				st.info("Faces detected, but no matches above the threshold.")
+			st.info("Faces detected, but no matches above the threshold.")
 	else:
-		st.info("Upload a target image to run face detection and matching.")
+		st.info("Capture a frame to run face detection and matching.")

@@ -240,8 +240,21 @@ def _normalize_scores(scores: list) -> dict:
         return {}
     if isinstance(scores, list) and scores and isinstance(scores[0], list):
         scores = scores[0]
-    total = sum(item.get("score", 0.0) for item in scores) or 1.0
-    return {item.get("label", "unknown").lower(): float(item.get("score", 0.0) / total) for item in scores}
+    if isinstance(scores, dict):
+        scores = [{"label": k, "score": v} for k, v in scores.items()]
+    cleaned = []
+    for item in scores:
+        if isinstance(item, dict):
+            cleaned.append(item)
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            cleaned.append({"label": item[0], "score": item[1]})
+    if not cleaned:
+        return {}
+    total = sum(float(item.get("score", 0.0)) for item in cleaned) or 1.0
+    return {
+        str(item.get("label", "unknown")).lower(): float(item.get("score", 0.0)) / total
+        for item in cleaned
+    }
 
 
 def _map_sentiment(scores: dict) -> tuple:

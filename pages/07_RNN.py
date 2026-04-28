@@ -1,3 +1,4 @@
+import os
 import time
 
 import matplotlib.pyplot as plt
@@ -6,7 +7,6 @@ import plotly.express as px
 import streamlit as st
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from utils.export import download_code_snippet, download_torch_state
 from utils.nav import render_sidebar
@@ -115,19 +115,17 @@ download_code_snippet("Export Python Code", code.strip(), "rnn_model.py")
 st.divider()
 
 try:
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
-    _text_deps_error = None
-except Exception as exc:
-    AutoModelForSequenceClassification = None
-    AutoTokenizer = None
-    pipeline = None
-    _text_deps_error = str(exc)
-
-try:
     import cv2
+    from streamlit_webrtc import VideoTransformerBase, webrtc_streamer
+    import av
+    import tensorflow as tf
     _video_deps_error = None
 except Exception as exc:
     cv2 = None
+    VideoTransformerBase = None
+    webrtc_streamer = None
+    av = None
+    tf = None
     _video_deps_error = str(exc)
 
 
@@ -161,21 +159,6 @@ st.markdown(
     padding: 16px;
     box-shadow: inset 0 0 18px rgba(0, 255, 208, 0.08);
 }
-.typing {
-    display: inline-block;
-    padding-left: 6px;
-    color: rgba(0, 255, 208, 0.8);
-}
-.typing span {
-    animation: blink 1.4s infinite both;
-}
-.typing span:nth-child(2) { animation-delay: 0.2s; }
-.typing span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes blink {
-    0% { opacity: 0.2; }
-    20% { opacity: 1; }
-    100% { opacity: 0.2; }
-}
 </style>
 """,
     unsafe_allow_html=True,
@@ -184,175 +167,33 @@ st.markdown(
 st.markdown(
     """
 <div class="lstm-hero">
-    <div class="lstm-title">LSTM Sentiment + Emotion Studio</div>
-    <div class="lstm-subtitle">Real-time text and camera analysis with multi-class sentiment, emotion mapping, and live metrics.</div>
+    <div class="lstm-title">RNN – Live Emotion Detection</div>
+    <div class="lstm-subtitle">Real-time facial emotion detection with webcam streaming.</div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-st.caption("Text models use pretrained classifiers for stronger baseline accuracy. You can replace them with a BiLSTM if you provide a dataset.")
-
-with st.expander("Theory: LSTM and emotion modeling", expanded=True):
-    st.markdown(
-        "BiLSTMs capture context in both directions, while emotion classifiers map text or facial signals into affective states. "
-        "This module combines a pretrained sentiment model, an emotion classifier, and a live facial emotion detector."
-    )
-    st.latex(
-        r"\overrightarrow{h_t} = \text{LSTM}(x_t, \overrightarrow{h_{t-1}}), "
-        r"\overleftarrow{h_t} = \text{LSTM}(x_t, \overleftarrow{h_{t+1}})"
-    )
-
-if _text_deps_error:
-    st.error("Missing dependencies for the text sentiment/emotion module.")
-    st.code(_text_deps_error)
-    st.stop()
-
-TEXT_SENTIMENT_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
-TEXT_EMOTION_MODEL = "j-hartmann/emotion-english-distilroberta-base"
-
 EMOJI_MAP = {
     "Happy": "😊",
     "Sad": "😢",
     "Angry": "😠",
+    "Neutral": "😐",
+    "Surprise": "😲",
     "Fear": "😨",
-    "Surprise": "😮",
-    "Love": "❤️",
-    "Excited": "🤩",
-    "Calm": "😌",
 }
+
+MODEL_PATH = os.getenv("EMOTION_MODEL_PATH", "models/emotion_model.h5")
+LABELS = ["Angry", "Fear", "Happy", "Neutral", "Sad", "Surprise"]
 
 
 @st.cache_resource
-def _load_text_pipelines():
-    tokenizer_sent = AutoTokenizer.from_pretrained(TEXT_SENTIMENT_MODEL)
-    model_sent = AutoModelForSequenceClassification.from_pretrained(TEXT_SENTIMENT_MODEL)
-    sent_pipe = pipeline("text-classification", model=model_sent, tokenizer=tokenizer_sent, top_k=None)
-
-    tokenizer_emo = AutoTokenizer.from_pretrained(TEXT_EMOTION_MODEL)
-    model_emo = AutoModelForSequenceClassification.from_pretrained(TEXT_EMOTION_MODEL)
-    emo_pipe = pipeline("text-classification", model=model_emo, tokenizer=tokenizer_emo, top_k=None)
-    return sent_pipe, emo_pipe
-
-
-def _normalize_scores(scores: list) -> dict:
-    if not scores:
-        return {}
-    if isinstance(scores, list) and scores and isinstance(scores[0], list):
-        scores = scores[0]
-    if isinstance(scores, dict):
-        scores = [{"label": k, "score": v} for k, v in scores.items()]
-    cleaned = []
-    for item in scores:
-        if isinstance(item, dict):
-            cleaned.append(item)
-        elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            cleaned.append({"label": item[0], "score": item[1]})
-    if not cleaned:
-        return {}
-    normalized = []
-    for item in cleaned:
-        label = item.get("label")
-        score = item.get("score")
-        if isinstance(score, str) and score.upper().startswith("LABEL_") and isinstance(label, (int, float)):
-            label, score = score, label
-        if isinstance(score, str):
-            try:
-                score = float(score)
-            except ValueError:
-                score = 0.0
-        if score is None:
-            score = 0.0
-        normalized.append({"label": str(label or "unknown"), "score": float(score)})
-    total = sum(item["score"] for item in normalized) or 1.0
-    return {item["label"].lower(): item["score"] / total for item in normalized}
-
-
-def _map_sentiment(scores: dict) -> tuple:
-    if not scores:
-        return "Neutral", 0.0
-    if any(label.startswith("label_") for label in scores):
-        mapped_scores = {
-            "negative": scores.get("label_0", 0.0),
-            "neutral": scores.get("label_1", 0.0),
-            "positive": scores.get("label_2", 0.0),
-        }
-        best_label = max(mapped_scores, key=mapped_scores.get)
-        return best_label.capitalize(), mapped_scores[best_label]
-    mapping = {"negative": "Negative", "neutral": "Neutral", "positive": "Positive"}
-    best_label = max(scores, key=scores.get)
-    return mapping.get(best_label, "Neutral"), scores[best_label]
-
-
-def _map_emotion(scores: dict, sentiment_label: str) -> tuple:
-    if not scores:
-        return "Calm", 0.0
-    base_map = {
-        "joy": "Happy",
-        "love": "Love",
-        "surprise": "Surprise",
-        "anger": "Angry",
-        "fear": "Fear",
-        "sadness": "Sad",
-    }
-    best_label = max(scores, key=scores.get)
-    mapped = base_map.get(best_label, "Calm")
-    mapped_score = scores[best_label]
-
-    if sentiment_label == "Neutral" and mapped in {"Happy", "Sad", "Angry", "Fear"}:
-        mapped = "Calm"
-        mapped_score = max(mapped_score, 0.3)
-
-    if scores.get("joy", 0) > 0.45 and scores.get("surprise", 0) > 0.18:
-        mapped = "Excited"
-        mapped_score = max(scores.get("joy", 0), scores.get("surprise", 0))
-
-    return mapped, mapped_score
-
-
-def _emotion_distribution(scores: dict, sentiment_label: str) -> dict:
-    dist = {label: 0.0 for label in EMOJI_MAP.keys()}
-    if not scores:
-        dist["Calm"] = 1.0
-        return dist
-    base_map = {
-        "joy": "Happy",
-        "love": "Love",
-        "surprise": "Surprise",
-        "anger": "Angry",
-        "fear": "Fear",
-        "sadness": "Sad",
-    }
-    for label, score in scores.items():
-        mapped = base_map.get(label)
-        if mapped:
-            dist[mapped] = max(dist[mapped], float(score))
-    dist["Excited"] = min(1.0, (scores.get("joy", 0.0) + scores.get("surprise", 0.0)) / 2)
-    if sentiment_label == "Neutral":
-        dist["Calm"] = max(dist["Calm"], 0.45)
-    else:
-        dist["Calm"] = max(dist["Calm"], 0.15)
-    return dist
-
-
-def _predict_text(text: str) -> dict:
-    sent_pipe, emo_pipe = _load_text_pipelines()
-    sent_scores = _normalize_scores(sent_pipe(text))
-    emo_scores = _normalize_scores(emo_pipe(text))
-    sentiment_label, sentiment_score = _map_sentiment(sent_scores)
-    emotion_label, emotion_score = _map_emotion(emo_scores, sentiment_label)
-    return {
-        "sentiment_label": sentiment_label,
-        "sentiment_score": sentiment_score,
-        "emotion_label": emotion_label,
-        "emotion_score": emotion_score,
-        "sentiment_scores": sent_scores,
-        "emotion_scores": emo_scores,
-    }
-
-
-def _confidence_percent(score: float) -> int:
-    return int(round(score * 100))
+def _load_emotion_model():
+    if tf is None:
+        return None
+    if not os.path.exists(MODEL_PATH):
+        return None
+    return tf.keras.models.load_model(MODEL_PATH)
 
 
 @st.cache_resource
@@ -361,153 +202,96 @@ def _get_face_cascade():
     return cv2.CascadeClassifier(cascade_path)
 
 
-@st.cache_resource
-def _get_smile_cascade():
-    cascade_path = cv2.data.haarcascades + "haarcascade_smile.xml"
-    return cv2.CascadeClassifier(cascade_path)
+def _predict_emotion(face_gray: np.ndarray, model) -> tuple:
+    if model is None:
+        return "Neutral", 0.5
+    face = cv2.resize(face_gray, (48, 48))
+    face = face.astype("float32") / 255.0
+    face = np.expand_dims(face, axis=(0, -1))
+    preds = model.predict(face, verbose=0)[0]
+    best_idx = int(np.argmax(preds))
+    label = LABELS[best_idx] if best_idx < len(LABELS) else "Neutral"
+    return label, float(preds[best_idx])
 
 
-def _analyze_snapshot(frame_bgr: np.ndarray) -> tuple:
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    cascade = _get_face_cascade()
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
-    display = frame_bgr.copy()
+class EmotionVideoProcessor(VideoTransformerBase):
+    def __init__(self):
+        self.model = _load_emotion_model()
+        self.face_cascade = _get_face_cascade()
+        self.last_emotion = ("Neutral", 0.5)
+        self.fps = 0.0
+        self._last_tick = time.time()
 
-    if len(faces) == 0:
-        return display, "No face detected", 0.0
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
 
-    for (x, y, w, h) in faces:
-        cv2.rectangle(display, (x, y), (x + w, y + h), (0, 255, 200), 2)
+        for (x, y, w, h) in faces:
+            face_roi = gray[y : y + h, x : x + w]
+            emotion_label, confidence = _predict_emotion(face_roi, self.model)
+            self.last_emotion = (emotion_label, confidence)
 
-    smile_cascade = _get_smile_cascade()
-    x, y, w, h = faces[0]
-    face_roi = gray[y : y + h, x : x + w]
-    smiles = smile_cascade.detectMultiScale(face_roi, scaleFactor=1.7, minNeighbors=20)
+            emoji = EMOJI_MAP.get(emotion_label, "")
+            label = f"{emotion_label} {emoji} | Confidence {int(confidence * 100)}%"
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 200), 2)
+            cv2.putText(img, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
 
-    if len(smiles) > 0:
-        emotion_label = "Happy"
-        sentiment_label = "Positive"
-        confidence = 0.75
-    else:
-        emotion_label = "Calm"
-        sentiment_label = "Neutral"
-        confidence = 0.45
-
-    emoji = EMOJI_MAP.get(emotion_label, "")
-    label = f"{emoji} {emotion_label} | {sentiment_label} | {_confidence_percent(confidence)}%"
-    cv2.putText(display, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
-    return display, label, confidence
+        now = time.time()
+        dt = now - self._last_tick
+        if dt > 0:
+            self.fps = 0.9 * self.fps + 0.1 * (1.0 / dt)
+        self._last_tick = now
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
-if "text_history" not in st.session_state:
-    st.session_state["text_history"] = []
-
-tab_text, tab_cam = st.tabs(["Text / Chat Mode", "Webcam Snapshot Mode"])
-
-with tab_text:
-    result = None
-    left, right = st.columns([1.2, 1])
-    with left:
-        st.markdown("#### Text Analysis Panel")
-        st.markdown(
-            "<div class='neon-card'>Type a message and analyze sentiment + emotion.</div>",
-            unsafe_allow_html=True,
-        )
-        chat_text = st.text_area("Chat input", height=120, placeholder="Type here...")
-        st.markdown("Typing" + "<span class='typing'><span>.</span><span>.</span><span>.</span></span>", unsafe_allow_html=True)
-        analyze = st.button("Analyze Text", type="primary")
-
-        if analyze and chat_text.strip():
-            result = _predict_text(chat_text)
-            st.session_state["text_history"].append({
-                "text": chat_text,
-                "sentiment_label": result["sentiment_label"],
-                "sentiment_score": result["sentiment_score"],
-                "emotion_label": result["emotion_label"],
-                "emotion_score": result["emotion_score"],
-            })
-
-    with right:
-        st.markdown("#### Confidence Charts")
-        if result:
-            sentiment_scores = result["sentiment_scores"]
-            emotion_scores = result["emotion_scores"]
-            sent_df = {
-                "label": ["Positive", "Neutral", "Negative"],
-                "score": [
-                    sentiment_scores.get("positive", 0.0),
-                    sentiment_scores.get("neutral", 0.0),
-                    sentiment_scores.get("negative", 0.0),
-                ],
-            }
-            emotion_dist = _emotion_distribution(emotion_scores, result["sentiment_label"])
-            emo_df = {
-                "label": list(emotion_dist.keys()),
-                "score": list(emotion_dist.values()),
-            }
-            sent_plot = px.bar(sent_df, x="label", y="score", range_y=[0, 1])
-            emo_plot = px.bar(emo_df, x="label", y="score", range_y=[0, 1])
-            st.plotly_chart(sent_plot, use_container_width=True)
-            st.plotly_chart(emo_plot, use_container_width=True)
-        else:
-            st.info("Run a text analysis to render confidence charts.")
-
-    st.markdown("#### Prediction History")
-    if st.session_state["text_history"]:
-        for item in reversed(st.session_state["text_history"][-8:]):
-            sent_pct = _confidence_percent(item["sentiment_score"])
-            emo_pct = _confidence_percent(item["emotion_score"])
-            emoji = EMOJI_MAP.get(item["emotion_label"], "")
-            st.markdown(
-                f"**{item['sentiment_label']}** ({sent_pct}%) | "
-                f"**{item['emotion_label']}** {emoji} ({emo_pct}%) — {item['text']}"
-            )
-    else:
-        st.info("No predictions yet.")
-
-with tab_cam:
-    st.markdown("#### Live Camera Panel")
-    if _video_deps_error:
-        st.warning("Webcam snapshot mode is unavailable in this environment.")
-        st.code(_video_deps_error)
-    else:
-        st.caption("Streamlit Cloud supports snapshot capture. Live video streaming is not available here.")
-        cam_frame = st.camera_input("Capture a frame")
-        if cam_frame:
-            frame_rgb = np.array(Image.open(cam_frame).convert("RGB"))
-            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-            display, label, confidence = _analyze_snapshot(frame_bgr)
-            st.image(cv2.cvtColor(display, cv2.COLOR_BGR2RGB), caption="Snapshot analysis", use_column_width=True)
-            if confidence > 0:
-                st.success(label)
-            else:
-                st.info("No face detected in the snapshot.")
-
-st.markdown("#### Accuracy Metrics")
-if st.session_state["text_history"]:
-    sent_avg = float(np.mean([item["sentiment_score"] for item in st.session_state["text_history"]]))
-    emo_avg = float(np.mean([item["emotion_score"] for item in st.session_state["text_history"]]))
+if _video_deps_error:
+    st.warning("Live webcam dependencies are missing in this environment.")
+    st.code(_video_deps_error)
 else:
-    sent_avg = 0.0
-    emo_avg = 0.0
+    model_loaded = _load_emotion_model() is not None
+    if not model_loaded:
+        st.warning("No emotion model found. Using Neutral fallback. Add models/emotion_model.h5 to enable predictions.")
 
-st.write(
-    {
-        "text_model": TEXT_SENTIMENT_MODEL,
-        "emotion_model": TEXT_EMOTION_MODEL,
-        "session_predictions": len(st.session_state["text_history"]),
-        "avg_sentiment_confidence": _confidence_percent(sent_avg),
-        "avg_emotion_confidence": _confidence_percent(emo_avg),
-        "note": "Metrics shown here are session-level confidence summaries, not ground-truth accuracy.",
-    }
-)
+    controls = st.columns([1, 1, 1])
+    with controls[0]:
+        start_cam = st.button("Start Camera")
+    with controls[1]:
+        stop_cam = st.button("Stop Camera")
+    with controls[2]:
+        st.markdown("<div class='neon-card'>Live Emotion Feed</div>", unsafe_allow_html=True)
 
-if st.session_state["text_history"]:
-    export_rows = []
-    for item in st.session_state["text_history"]:
-        export_rows.append(
-            f"{item['text']},{item['sentiment_label']},{_confidence_percent(item['sentiment_score'])},"
-            f"{item['emotion_label']},{_confidence_percent(item['emotion_score'])}"
+    if "camera_running" not in st.session_state:
+        st.session_state["camera_running"] = False
+    if start_cam:
+        st.session_state["camera_running"] = True
+    if stop_cam:
+        st.session_state["camera_running"] = False
+
+    status_col, meter_col = st.columns([1, 1])
+    if st.session_state["camera_running"]:
+        webrtc_ctx = webrtc_streamer(
+            key="emotion-cam",
+            video_transformer_factory=EmotionVideoProcessor,
+            media_stream_constraints={"video": True, "audio": False},
         )
-    export_csv = "text,sentiment,sentiment_confidence,emotion,emotion_confidence\n" + "\n".join(export_rows)
-    st.download_button("Export Results", export_csv, file_name="lstm_sentiment_history.csv")
+
+        processor = webrtc_ctx.video_transformer if webrtc_ctx else None
+        label = "Neutral"
+        conf = 0.0
+        fps_val = 0.0
+        if processor:
+            label, conf = processor.last_emotion
+            fps_val = processor.fps
+
+        with status_col:
+            emoji = EMOJI_MAP.get(label, "")
+            st.markdown("#### Current Emotion")
+            st.markdown(f"<div class='neon-card'>{label} {emoji}</div>", unsafe_allow_html=True)
+            st.markdown(f"**FPS:** {fps_val:.1f}")
+
+        with meter_col:
+            st.markdown("#### Confidence")
+            st.progress(int(conf * 100))
+    else:
+        st.info("Camera is stopped. Click Start Camera.")

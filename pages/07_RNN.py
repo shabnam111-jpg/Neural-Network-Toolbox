@@ -214,35 +214,36 @@ def _predict_emotion(face_gray: np.ndarray, model) -> tuple:
     return label, float(preds[best_idx])
 
 
-class EmotionVideoProcessor(VideoTransformerBase):
-    def __init__(self):
-        self.model = _load_emotion_model()
-        self.face_cascade = _get_face_cascade()
-        self.last_emotion = ("Neutral", 0.5)
-        self.fps = 0.0
-        self._last_tick = time.time()
+if not _video_deps_error:
+    class EmotionVideoProcessor(VideoTransformerBase):
+        def __init__(self):
+            self.model = _load_emotion_model()
+            self.face_cascade = _get_face_cascade()
+            self.last_emotion = ("Neutral", 0.5)
+            self.fps = 0.0
+            self._last_tick = time.time()
 
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
 
-        for (x, y, w, h) in faces:
-            face_roi = gray[y : y + h, x : x + w]
-            emotion_label, confidence = _predict_emotion(face_roi, self.model)
-            self.last_emotion = (emotion_label, confidence)
+            for (x, y, w, h) in faces:
+                face_roi = gray[y : y + h, x : x + w]
+                emotion_label, confidence = _predict_emotion(face_roi, self.model)
+                self.last_emotion = (emotion_label, confidence)
 
-            emoji = EMOJI_MAP.get(emotion_label, "")
-            label = f"{emotion_label} {emoji} | Confidence {int(confidence * 100)}%"
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 200), 2)
-            cv2.putText(img, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
+                emoji = EMOJI_MAP.get(emotion_label, "")
+                label = f"{emotion_label} {emoji} | Confidence {int(confidence * 100)}%"
+                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 200), 2)
+                cv2.putText(img, label, (x, max(20, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
 
-        now = time.time()
-        dt = now - self._last_tick
-        if dt > 0:
-            self.fps = 0.9 * self.fps + 0.1 * (1.0 / dt)
-        self._last_tick = now
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+            now = time.time()
+            dt = now - self._last_tick
+            if dt > 0:
+                self.fps = 0.9 * self.fps + 0.1 * (1.0 / dt)
+            self._last_tick = now
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
 if _video_deps_error:
